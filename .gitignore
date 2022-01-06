@@ -10,6 +10,9 @@ __pycache__/
 runs/
 _vizdoom/
 _vizdoom.ini
+SEED/runs/
+SEED/_vizdoom/
+SEED/_vizdoom.ini
 
 # Distribution / packaging
 .Python
