@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+# vizdoom and tensorboard files
+runs/
+_vizdoom/
+_vizdoom.ini
+
 # Distribution / packaging
 .Python
 build/
