@@ -1,6 +1,7 @@
 from multiprocessing import Process, Pipe
 
 import gym 
+import time 
 
 import numpy as np
 
@@ -11,7 +12,11 @@ def run_env(env_fun, inputPipe, outputPipe, m=1):
     x.close()
     y.close()
 
-    env_list = [env_fun() for _ in range(m)]
+    env_list = []
+
+    for _ in range(m):
+        time.sleep(0.1)
+        env_list.append(env_fun())
     obs = [env.reset() for env in env_list]
 
     shape, dtype = obs[0].shape, obs[0].dtype

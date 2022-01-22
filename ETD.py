@@ -13,13 +13,8 @@ import functools
 
 sg = jax.lax.stop_gradient
 
-class MODEL_OUTPUT(NamedTuple):
-    logits:jnp.ndarray
-    value:jnp.ndarray
 
 Tau = namedtuple('Tau', ["obs", "reward", "done", "action", "logits"])
-
-
 
 
 class ETD(object):

@@ -17,7 +17,7 @@ os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']='.30'
 N_steps = 5
 
 opti = optax.chain(
-    optax.adam(learning_rate=1e-3)
+    optax.adam(learning_rate=2e-4)
 )
 
 agent = ETD(MLP_MODEL,
@@ -25,8 +25,8 @@ agent = ETD(MLP_MODEL,
     num_heads=3, trajectory_n=N_steps,
     gamma=jnp.array([0.99, 0.985, 0.98]),
     #trust_region=np.log(6) / 5,
-    opti=opti, E_coef=0.05,
-    use_Ftrace=True,
+    opti=opti, E_coef=0.01,
+    use_Ftrace=False,
 )
 
 """
@@ -96,6 +96,7 @@ class Worker:
                 if done[i]:
                     if True: writer.add_scalar("reward", r_sum[i], steps*self.N)
                     print(steps*self.N, r_sum[i])
+                    writer.flush()
                     r_sum[i] = 0
             
             obs = n_obs

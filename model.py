@@ -23,8 +23,8 @@ class MLP_MODEL(hk.Module):
     
     def __call__(self, obs):
         h = hk.Sequential([
-            hk.Linear(256), jax.nn.relu, 
-            hk.Linear(256), jax.nn.relu
+            hk.Linear(256), jax.nn.relu,
+            hk.Linear(128), jax.nn.relu
         ])(obs)
 
         return jax.vmap(lambda _ :MODEL_OUTPUT(
