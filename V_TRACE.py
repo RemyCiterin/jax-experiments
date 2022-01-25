@@ -21,7 +21,7 @@ Tau = namedtuple('Tau', ["obs", "reward", "done", "action", "logits"])
 
 class V_TRACE(object):
     def __init__(self, core:Callable[[int], hk.Module], inDim, outDim:int, 
-            num_heads:int, trajectory_n, gamma, opti=optax.adam(2e-4), E_coef=0.01, trust_region=None):
+            num_heads:int, trajectory_n, gamma, opti=optax.adam(2e-4), E_coef=0.98, trust_region=None):
 
         self._init_fn, self.apply_fn = hk.without_apply_rng(
             hk.transform(lambda x : core(outDim, num_heads=num_heads)(x))
@@ -40,7 +40,7 @@ class V_TRACE(object):
     
     @functools.partial(jax.jit, static_argnums=(0,))
     def init_params(self, key):
-        return self._init_fn(key, jnp.zeros(self.inDim)[None, None, ...])
+        return (self._init_fn(key, jnp.zeros(self.inDim)[None, None, ...]), jnp.log(0.01))
     
     @functools.partial(jax.jit, static_argnums=(0,))
     def init_state(self, params):
@@ -48,7 +48,7 @@ class V_TRACE(object):
     
     @functools.partial(jax.jit, static_argnums=(0,))
     def get_main_proba(self, params, obs):
-        logits = self.apply_fn(params, obs).logits[0]
+        logits = self.apply_fn(params[0], obs).logits[0]
         return logits, jax.nn.softmax(logits)
     
     @functools.partial(jax.jit, static_argnums=(0,))
@@ -60,7 +60,7 @@ class V_TRACE(object):
         assert len(tau.reward) >= self.n
         assert len(tau.done)   >= self.n
 
-        result = self.apply_fn(params, tau.obs)
+        result = self.apply_fn(params[0], tau.obs)
 
         ln_mu = jnp.sum(
             jax.nn.log_softmax(tau.logits.at[:self.n].get()) * 
@@ -111,10 +111,13 @@ class V_TRACE(object):
                 tau.reward.at[:self.n].get() + gamma.at[:self.n].get() * V.at[1:].get() - value.at[:self.n].get()
             )
 
-            lossE = self.E_coef * jnp.sum(
+            entropy = - jnp.sum(
                 jax.nn.softmax(logits.at[:self.n].get()) *
                 jax.nn.log_softmax(logits.at[:self.n].get()), 
             axis=-1)
+
+            lossE = - jax.lax.stop_gradient(jnp.exp(params[1])) * entropy + \
+                jnp.exp(params[1]) * jax.lax.stop_gradient(entropy - self.E_coef * jnp.log(self.outDim))
 
             return lossV + lossP + lossE
         

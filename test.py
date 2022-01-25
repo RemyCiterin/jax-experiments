@@ -1,3 +1,8 @@
+import os 
+
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION']='.30'
+
 import jax 
 import haiku as hk
 import optax 
@@ -42,12 +47,13 @@ def test_colision(rec1, rec2):
 
 
 class JaxPong:
-    def __init__(self, speed, max_ball_speed, delta_t, paddleW, paddleH, ballD, lossL):
+    def __init__(self, speedL, speedR, max_ball_speed, delta_t, paddleW, paddleH, ballD, lossL):
         self.max_ball_speed = max_ball_speed
         self.delta_t = delta_t
         self.paddleW = paddleW
         self.paddleH = paddleH
-        self.speed = speed
+        self.speedL = speedL
+        self.speedR = speedR
         self.ballD = ballD
         self.lossL = lossL
         
@@ -98,11 +104,11 @@ class JaxPong:
         # action is a real between -1 and 1
 
         rightPos = jnp.clip(
-            state.rightPos + self.delta_t * jnp.clip(action, -1, 1) * self.speed, 0, 1
+            state.rightPos + self.delta_t * jnp.clip(action, -1, 1) * self.speedR, 0, 1
         )
 
         leftPos = jnp.clip(
-            state.leftPos + self.speed * self.delta_t * jnp.sign(state.ballPos.at[1].get() - state.leftPos), 0, 1
+            state.leftPos + self.speedL * self.delta_t * jnp.sign(state.ballPos.at[1].get() - state.leftPos), 0, 1
         )
 
         speedR = (rightPos - state.rightPos) / self.delta_t 
@@ -159,41 +165,42 @@ def frameStack(last_obs, obs):
     return last_obs.at[3:].set(last_obs[:-3]).at[:3].set(obs)
 
 size = 256
-n, m = 20, 20
+n, m = 50, 50
 
-pong = JaxPong(speed=1.0, max_ball_speed=1.5, delta_t=0.05, paddleW=0.05, paddleH=0.2, ballD=0.05, lossL=0.1)
+pong = JaxPong(speedL=1.0, speedR=1.25, max_ball_speed=1.5, delta_t=0.05, paddleW=0.05, paddleH=0.2, ballD=0.05, lossL=0.1)
 
 
 rng, state = pong.reset(PRNGKey(42))
-
+"""
 for _ in range(20):
     state, reward, done, rng = pong.step(state, 0.1, rng)
     img = pong.get_obs(state, n, m)
     plt.imshow(np.transpose(img, (1, 2, 0)).astype(float))
     plt.show()
     print(reward)
-
+"""
 
 from V_TRACE import *
-from model import * 
+from model import *
 
 N = 1
-opti = optax.adam(1e-3)
-"""
+opti = optax.adam(2e-4)
+
 actor = V_TRACE(
     MLP_MODEL, inDim=(6,), outDim=2,
     num_heads=1, trajectory_n=N,
     gamma=jnp.array([0.99]),
-    opti=opti, E_coef=0.05
+    opti=opti, E_coef=0.9
+)
+"""
+actor = V_TRACE(
+    ConvModel, inDim=(12, n, m), outDim=2,
+    num_heads=1, trajectory_n=N,
+    gamma=jnp.array([0.99]),
+    opti=opti, E_coef=0.8
 )
 """
 
-actor = V_TRACE(
-    LittleConvModel, inDim=(12, n, m), outDim=2,
-    num_heads=1, trajectory_n=N,
-    gamma=jnp.array([0.99]),
-    opti=opti, E_coef=0.05
-)
 
 @jax.jit
 def state_to_obs(state:PongState):
@@ -222,11 +229,11 @@ def multi_steps(n, state, action, rng):
 
 import time
 
-def train():
+def train(total_time):
     rng, state = jax.vmap(lambda i : pong.reset(PRNGKey(i)))(jnp.arange(size))
-    obs = jax.vmap(lambda s : pong.get_obs(s, n, m))(state).astype(float)
-    obs = jax.vmap(functools.partial(frameStack, jnp.zeros((12, n, m))))(obs)
-    #obs = jax.vmap(state_to_obs)(state)
+    #obs = jax.vmap(lambda s : pong.get_obs(s, n, m))(state).astype(float)
+    #obs = jax.vmap(functools.partial(frameStack, jnp.zeros((12, n, m))))(obs)
+    obs = jax.vmap(state_to_obs)(state)
     
     global params
     global opti_state
@@ -238,20 +245,19 @@ def train():
     reward_curve = []
 
     start_time = time.time()
-    while True:
+    while time.time() - start_time < total_time:
         logits, softmax = jax.tree_map(
             lambda t : np.array(t)[0], actor.get_main_proba(params, obs[None, ...])
         )
 
         actions = np.array([np.random.choice(actor.outDim, p=s / np.sum(s)) for s in softmax], dtype=int)
 
-        reward = 0
-        state, reward, done, rng = jax.vmap(functools.partial(multi_steps, 4))(state, actions * 2 - 1, rng)
-        #state, reward, done, rng = jax.vmap(pong.step)(state, actions * 2 - 1, rng)
+        #state, reward, done, rng = jax.vmap(functools.partial(multi_steps, 4))(state, actions * 2 - 1, rng)
+        state, reward, done, rng = jax.vmap(pong.step)(state, actions * 2 - 1, rng)
 
-        n_obs = jax.vmap(lambda s : pong.get_obs(s, n, m))(state).astype(float)
-        n_obs = jax.vmap(lambda o, l_o, d : frameStack(l_o*(1-d), o))(n_obs, obs, done)
-        #n_obs = jax.vmap(state_to_obs)(state)
+        #n_obs = jax.vmap(lambda s : pong.get_obs(s, n, m))(state).astype(float)
+        #n_obs = jax.vmap(lambda o, l_o, d : frameStack(l_o*(1-d), o))(n_obs, obs, done)
+        n_obs = jax.vmap(state_to_obs)(state)
 
         current_r_sum = reward + current_r_sum
         last_r_sum    = (1-done) * last_r_sum + done * current_r_sum
@@ -271,8 +277,17 @@ def train():
                 logits = jnp.array(tau.logits)
             )
             opti_state, params, loss = actor.V_TRACE_step(opti_state, params, tau)
-            print(end="\r{}   {}   {}   {}   {}      ".format(loss, steps, int(time.time()-start_time), np.mean(episode_len), np.mean(last_r_sum)))
+            print(end="\r{}   {}   {}   {}   {}   {}   {}   ".format(
+                str(loss)[:7], steps, int(time.time()-start_time), 
+                int(np.mean(episode_len)), str(np.mean(last_r_sum))[:6], 
+                str(np.exp(params[1]))[:6], str(np.sum(-softmax * np.log(softmax))/size)[:5]
+            ))
+
             reward_curve.append(np.mean(last_r_sum))
         obs = n_obs
+    print()
 
-train()
+train(360)
+
+plt.plot(reward_curve)
+plt.show()

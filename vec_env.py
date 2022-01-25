@@ -6,7 +6,7 @@ import time
 import numpy as np
 
 
-def run_env(env_fun, inputPipe, outputPipe, m=1):
+def run_env(env_fun, inputPipe, outputPipe, m=1, render=False):
     outputPipe, y = outputPipe
     x, inputPipe  = inputPipe
     x.close()
@@ -15,7 +15,7 @@ def run_env(env_fun, inputPipe, outputPipe, m=1):
     env_list = []
 
     for _ in range(m):
-        time.sleep(0.1)
+        time.sleep(0.3)
         env_list.append(env_fun())
     obs = [env.reset() for env in env_list]
 
@@ -33,6 +33,7 @@ def run_env(env_fun, inputPipe, outputPipe, m=1):
         obs = []
         
         for i in range(m):
+            if render and i == 0: env_list[i].render()
             o, r, d, _ = env_list[i].step(actions[i])
             if d: o = env_list[i].reset()
             reward.append(r)
@@ -49,12 +50,12 @@ def run_env(env_fun, inputPipe, outputPipe, m=1):
 
 
 class VecEnv(object):
-    def __init__(self, env_fun, n, m=1):
+    def __init__(self, env_fun, n, m=1, render=False):
         inputPipe  = [Pipe() for _ in range(n)]
         outputPipe = [Pipe() for _ in range(n)]
 
         for i in range(n):
-            process = Process(target=run_env, args=(env_fun, outputPipe[i], inputPipe[i], m))
+            process = Process(target=run_env, args=(env_fun, outputPipe[i], inputPipe[i], m, render and i == 0))
             process.start()
 
             inputPipe[i][0].close()
