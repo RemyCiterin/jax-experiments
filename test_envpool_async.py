@@ -21,13 +21,13 @@ import jax
 
 from typing import NamedTuple
 
-N = 5
+N = 10
 
 actor = V_TRACE(
-    ConvModel, (4, 84, 84), 6,
+    ConvModel, (4, 84, 84), 4,
     1, N, jnp.array([0.99]),
     optax.adam(5e-4),
-    E_coef=0.9
+    E_coef=0.95
 )
 
 """
@@ -81,7 +81,7 @@ def work(actor, total_time, Q, batch_size=32, num_envs=96, seed=42):
             l_sum.at[idx].set((c_sum.at[idx].get() + reward) * done + l_sum.at[idx].get() * (1-done))
         )
 
-    env = envpool.make("Pong-v5", env_type="gym", num_envs=num_envs, batch_size=batch_size)
+    env = envpool.make("Breakout-v5", env_type="gym", num_envs=num_envs, batch_size=batch_size)
     env.async_reset()
 
 
@@ -104,7 +104,7 @@ def work(actor, total_time, Q, batch_size=32, num_envs=96, seed=42):
         for i, ident in enumerate(info['env_id']):
 
             if not ident in partial_tau:
-                partial_tau[ident] = PartialTau(N)
+                partial_tau[ident] = PartialTau(N, use_ETD=False)
 
             if ident in last_state:
                 p_obs, p_action, p_logits = last_state[ident]

@@ -17,8 +17,6 @@ sg = jax.lax.stop_gradient
 Tau = namedtuple('Tau', ["obs", "reward", "done", "action", "logits"])
 
 
-
-
 class V_TRACE(object):
     def __init__(self, core:Callable[[int], hk.Module], inDim, outDim:int, num_heads:int, 
             trajectory_n, gamma, opti=optax.adam(2e-4), E_coef=0.98, trust_region=None, use_Ftrace=False):
@@ -68,7 +66,7 @@ class V_TRACE(object):
             jax.nn.one_hot(tau.action.at[:self.n].get(), self.outDim),
         axis=-1)
 
-        def V_TRACE_loss(value, logits, gamma):
+        def get_loss(value, logits, gamma):
             gamma = gamma * (1-tau.done.at[:self.n].get())
 
             ln_pi = jnp.sum(
@@ -77,7 +75,7 @@ class V_TRACE(object):
             axis=-1)
 
             RHO = sg(
-                jnp.maximum(1, jnp.exp(ln_pi - ln_mu))
+                jnp.minimum(1, jnp.exp(ln_pi - ln_mu))
             )
 
             if not self.trust_region is None:
@@ -122,12 +120,59 @@ class V_TRACE(object):
 
             return lossV + lossP + lossE
         
-        return jnp.mean(jax.vmap(V_TRACE_loss)(result.value, result.logits, self.gamma))
-    
+        return jnp.mean(jax.vmap(get_loss)(result.value, result.logits, self.gamma))
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def V_TRACE_step(self, state, params, tau):
         loss, grad = jax.value_and_grad(self.V_TRACE_loss)(params, tau)
+
+        updates, state = self.opti.update(grad, state, params)
+        params = optax.apply_updates(params, updates)
+
+        return state, params, loss
+
+
+    @functools.partial(jax.jit, static_argnums=(0,))
+    def PG_loss(self, params, tau:Tau):
+
+        assert len(tau.obs)    >= self.n+1 
+        assert len(tau.action) >= self.n
+        assert len(tau.logits) >= self.n
+        assert len(tau.reward) >= self.n
+        assert len(tau.done)   >= self.n
+
+        result = self.apply_fn(params[0], tau.obs)
+
+        def get_loss(value, logits, gamma):
+            gamma = gamma * (1-tau.done.at[:self.n].get())
+
+            ln_pi = jnp.sum(
+                jax.nn.log_softmax(logits.at[:self.n].get()) * 
+                jax.nn.one_hot(tau.action.at[:self.n].get(), self.outDim),
+            axis=-1)
+
+            delta = sg(tau.reward.at[:self.n].get() + gamma * value.at[1:self.n+1].get()) - value.at[:self.n].get()
+
+            lossV = delta ** 2
+
+            lossP = -ln_pi * sg(delta)
+
+            entropy = - jnp.sum(
+                jax.nn.softmax(logits.at[:self.n].get()) *
+                jax.nn.log_softmax(logits.at[:self.n].get()), 
+            axis=-1)
+
+            lossE = - jax.lax.stop_gradient(jnp.exp(params[1])) * entropy + \
+                jnp.exp(params[1]) * jax.lax.stop_gradient(entropy - self.E_coef * jnp.log(self.outDim))
+
+            return lossV + lossP + lossE
+        
+        return jnp.mean(jax.vmap(get_loss)(result.value, result.logits, self.gamma))
+    
+
+    @functools.partial(jax.jit, static_argnums=(0,))
+    def PG_step(self, state, params, tau):
+        loss, grad = jax.value_and_grad(self.PG_loss)(params, tau)
 
         updates, state = self.opti.update(grad, state, params)
         params = optax.apply_updates(params, updates)
@@ -158,7 +203,7 @@ class V_TRACE(object):
             axis=-1)
 
             RHO = sg(
-                jnp.maximum(1, jnp.exp(ln_pi - ln_mu))
+                jnp.minimum(1, jnp.exp(ln_pi - ln_mu))
             )
 
             if not self.trust_region is None:
@@ -288,9 +333,12 @@ class PartialTau:
             return tau 
         return None
 
+
     def add_transition(self, obs, logits, action, reward, done, n_obs):
         if self.use_ETD: return self.add_transition_ETD(obs, logits, action, reward, done, n_obs)
         return self.add_transition_V_TRACE(obs, logits, action, reward, done, n_obs)
+
+
 
 if __name__ == "__main__":
     from torch.utils.tensorboard import SummaryWriter

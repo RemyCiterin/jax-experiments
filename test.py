@@ -183,7 +183,7 @@ for _ in range(20):
 from V_TRACE import *
 from model import *
 
-N = 1
+N = 5
 opti = optax.adam(2e-4)
 
 actor = V_TRACE(
