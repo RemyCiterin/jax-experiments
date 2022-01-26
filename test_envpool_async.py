@@ -19,28 +19,44 @@ from jax.random import PRNGKey, split
 import jax.numpy as jnp
 import jax
 
-N = 3
+from typing import NamedTuple
+
+N = 5
 
 actor = V_TRACE(
     ConvModel, (4, 84, 84), 6,
     1, N, jnp.array([0.99]),
-    optax.adam(2e-4),
+    optax.adam(5e-4),
     E_coef=0.9
 )
+
+"""
+
+N = 10
+
+actor = V_TRACE(
+    ConvModel, (4, 84, 84), 5,
+    1, N, jnp.array([0.99]),
+    optax.adam(5e-4),
+    E_coef=0.9
+)
+
+"""
 
 params = actor.init_params(PRNGKey(42))
 opti_state = actor.init_state(params)
 
 
 import queue
-Q = queue.Queue(128)
+Q = queue.Queue(64)
+
 
 @jax.jit
 def obs_process(obs):
     return obs / 255.0
 
 
-def work(actor, total_time, Q, batch_size=32, num_envs=64, seed=42):
+def work(actor, total_time, Q, batch_size=32, num_envs=96, seed=42):
     rng = PRNGKey(seed)
 
     @jax.jit
@@ -54,7 +70,16 @@ def work(actor, total_time, Q, batch_size=32, num_envs=64, seed=42):
     global params
     partial_tau  = {}
     last_state   = {}
-    total_reward = {}
+
+    current_r_sum = jnp.zeros((num_envs,))
+    last_r_sum    = jnp.zeros((num_envs,))
+
+    @partial(jax.jit, backend="cpu")
+    def update_recoder(idx, reward, done, c_sum, l_sum):
+        return (
+            c_sum.at[idx].set((c_sum.at[idx].get() + reward) * (1 - done)), 
+            l_sum.at[idx].set((c_sum.at[idx].get() + reward) * done + l_sum.at[idx].get() * (1-done))
+        )
 
     env = envpool.make("Pong-v5", env_type="gym", num_envs=num_envs, batch_size=batch_size)
     env.async_reset()
@@ -63,6 +88,8 @@ def work(actor, total_time, Q, batch_size=32, num_envs=64, seed=42):
     steps = 0
     start_time = time.time()
 
+    reward_curve = []
+
     while time.time() - start_time < total_time:
         obs, reward, done, info = env.recv()
 
@@ -70,48 +97,47 @@ def work(actor, total_time, Q, batch_size=32, num_envs=64, seed=42):
         
         env.send(action, info['env_id'])
         steps += 1
+
+        current_r_sum, last_r_sum = update_recoder(info['env_id'], reward, done, current_r_sum, last_r_sum)
+        
         
         for i, ident in enumerate(info['env_id']):
 
             if not ident in partial_tau:
-                partial_tau[ident]  = PartialTau(N)
-                total_reward[ident] = 0.0
+                partial_tau[ident] = PartialTau(N)
 
-            else:
+            if ident in last_state:
                 p_obs, p_action, p_logits = last_state[ident]
                 tau = partial_tau[ident].add_transition(p_obs, p_logits, p_action, reward[i], done[i], obs[i])
                 if not tau is None: Q.put(tau)
+                
 
             last_state[ident] = obs[i], action[i], logits[i]
 
-            total_reward[ident] += reward[i]
-            if done[i]:
-                print(steps, int(time.time()-start_time), total_reward[ident])
-                total_reward[ident] = 0.0
+
+        if steps % 100 == 0:
+            print(end=f"\r{steps*batch_size}  {time.time()-start_time:.0f}  {np.mean(last_r_sum):.6f}  ")
+            reward_curve.append(np.mean(last_r_sum))
+
+    import matplotlib.pyplot as plt
+    plt.plot(reward_curve)
+    plt.show()
 
 
-total_time = 3600
+total_time = 60 * 30
 
 import threading
-threads = [threading.Thread(target=work, args=(actor, total_time, Q)) for _ in range(1)]
-[t.start() for t in threads]
+thread = threading.Thread(target=work, args=(actor, total_time, Q))
+thread.start()
 
-
-steps = 0
-wait_time = 0
-start_time = time.time()
-while time.time() - start_time < total_time:
-
-    wait_time -= time.time()
+while True:
 
     batch = []
-
     while len(batch) < 32:
         batch.append(Q.get())
-    wait_time += time.time()
 
     batch = Tau(
-        obs   =obs_process(jnp.array([[b.obs[i]    for b in batch] for i in range(N+1)])),
+        obs   =obs_process(jnp.array([[b.obs[i] for b in batch] for i in range(N+1)])),
         reward=jnp.array([[b.reward[i] for b in batch] for i in range(N)]),
         done  =jnp.array([[b.done[i]   for b in batch] for i in range(N)]),
         action=jnp.array([[b.action[i] for b in batch] for i in range(N)]),
@@ -119,9 +145,5 @@ while time.time() - start_time < total_time:
     )
 
     opti_state, params, loss = actor.V_TRACE_step(opti_state, params, batch)
-    steps += 1 
 
-    if steps % 10 == 0: print(steps, int(time.time() - start_time), wait_time / (time.time() - start_time), np.exp(params[1]))
-
-
-[t.join() for t in threads]
+thread.join()

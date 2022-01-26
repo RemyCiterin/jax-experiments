@@ -18,12 +18,29 @@ from jax.random import PRNGKey, split
 import jax.numpy as jnp
 import jax
 
+
+import threading
+
+def safe_print():
+    real_print = print
+    lock = threading.Lock()
+
+    def aux(*args, **kargs):
+        lock.acquire()
+        real_print(*args, **kargs)
+        lock.release()
+
+    return aux
+
+print = safe_print()
+
+
 N = 3
 
 actor = V_TRACE(
-    ConvModel, (4, 84, 84), 6,
+    ConvModel, (4, 84, 84), 4,
     1, N, jnp.array([0.99]),
-    optax.adam(2e-4),
+    optax.adam(5e-4),
     E_coef=0.9
 )
 """
@@ -38,14 +55,13 @@ actor = V_TRACE(
 params = actor.init_params(PRNGKey(42))
 opti_state = actor.init_state(params)
 
+@jax.jit
+def obs_process(obs):
+    return obs / 255.0
 
 
-def work(actor, total_time, num_envs=64, seed=42):
+def work(actor, total_time, Q, num_envs=32, seed=42):
     rng = PRNGKey(seed)
-
-    @jax.jit
-    def obs_process(obs):
-        return obs / 255.0
 
     @jax.jit
     def get_action(rng, params, obs):
@@ -62,7 +78,7 @@ def work(actor, total_time, num_envs=64, seed=42):
     episode_len   = jnp.zeros((num_envs,))
     reward_curve  = []
 
-    env = envpool.make("Pong-v5", env_type="gym", num_envs=num_envs)
+    env = envpool.make("Breakout-v5", env_type="gym", num_envs=num_envs)
     print(env.action_space)
     
     obs = env.reset()
@@ -73,7 +89,6 @@ def work(actor, total_time, num_envs=64, seed=42):
     while time.time() - start_time < total_time:
 
         action, logits, rng = jax.tree_map(np.array,  get_action(rng, params, obs))
-
         n_obs, reward, done, info = env.step(action)
         
         steps += 1
@@ -85,27 +100,39 @@ def work(actor, total_time, num_envs=64, seed=42):
         episode_len   = (1 + episode_len) * (1-done)
         current_r_sum = current_r_sum * (1-done)
 
-        
-        
-        if not tau is None:
-            tau = Tau( 
-                done = jnp.array(tau.done),
-                reward = jnp.array(tau.reward),
-                action = jnp.array(tau.action),
-                logits = jnp.array(tau.logits),
-                obs = obs_process(jnp.array(tau.obs)),
-            )
+        if not tau is None: Q.put(tau)
 
-            opti_state, params, loss = actor.V_TRACE_step(opti_state, params, tau)
+        if steps % 100 == 0:
             print(end=f"\r{steps*num_envs}  {time.time()-start_time:.0f}  {np.mean(episode_len):.0f}  {np.mean(last_r_sum):.5f}  {np.exp(params[1]):.5f}   ")
             reward_curve.append(np.mean(last_r_sum))
 
     print()
-    return reward_curve
+    import matplotlib.pyplot as plt
+    plt.plot(reward_curve)
+    plt.show()
 
- 
-results = work(actor, 3600)
+total_time = 30 * 60
 
-import matplotlib.pyplot as plt
-plt.plot(results)
-plt.show()
+import queue
+Q = queue.Queue(10)
+
+import threading
+threads = [threading.Thread(target=work, args=(actor, total_time, Q)) for _ in range(2)]
+[t.start() for t in threads]
+
+
+while True:
+    tau = Q.get()
+
+    tau = Tau(
+        done = jnp.array(tau.done),
+        reward = jnp.array(tau.reward),
+        action = jnp.array(tau.action),
+        logits = jnp.array(tau.logits),
+        obs = obs_process(jnp.array(tau.obs)),
+    )
+
+    opti_state, params, loss = actor.V_TRACE_step(opti_state, params, tau)
+
+
+[t.join() for t in threads]
