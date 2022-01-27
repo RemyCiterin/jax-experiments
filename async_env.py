@@ -1,3 +1,5 @@
+# attention : très lent
+
 from multiprocessing import Pipe, Process
 import numpy as np 
 import threading
