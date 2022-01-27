@@ -184,8 +184,10 @@ from V_TRACE import *
 from model import *
 
 N = 5
-opti = optax.adam(2e-4)
-
+optim = optax.chain(
+    optax.clip_by_global_norm(40.0),
+    optax.rmsprop(5e-4, decay=0.99)
+)
 actor = V_TRACE(
     MLP_MODEL, inDim=(6,), outDim=2,
     num_heads=1, trajectory_n=N,
