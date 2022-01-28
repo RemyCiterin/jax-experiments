@@ -18,7 +18,7 @@ basic implementation of V_TRACE (several workers on the CPU and a centralized wo
 ## run_async.py and run_sync.py : 
 Fast paralellelism for deep-reinforcement learning with V_TRACE and envpool (https://github.com/sail-sg/envpool), 24000 FPS for ETD and 28000 FPS for V_TRACE (up to 32000 on an NVIDIA V100 with 60 cores)
 
-run_async solve Breakout and Doom (Defend the center) in 30 minutes (10M and 3M learner frames $\Leftrightarrow$ 40M and 12M environnement frames) :  
+run_async solve Breakout and Doom (DefendTheCenter, DeadlyCorridor and Basic environnements) in 30 minutes (10M and 3M learner frames $\Leftrightarrow$ 40M and 12M environnement frames) :  
 ![](images/V_TRACE_Breakout.png)
 ![](images/V_TRACE_DefendTheCenter.png)
 
