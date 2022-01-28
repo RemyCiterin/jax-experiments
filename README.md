@@ -3,17 +3,37 @@
 Implementation in Jax of Impala based algorithms
 
 ## dependancies
+vizdoom : https://github.com/mwydmuch/ViZDoom  
 
-    pip install jax
+vizdoomgym : https://github.com/shakenes/vizdoomgym  
+
+gym :  
+
     pip install pyglet
-    pip install opencv-python
-    pip install tensorboardX
     pip install gym
     pip install Box2D
+    pip install gym[atari,accept-rom-license]
+
+jax :  
+
+    pip install jax
     pip install dm-haiku
     pip install optax
-    pip install gym[atari,accept-rom-license]
+
+ray :  
+
     pip install ray
+
+opencv :  
+
+    pip install opencv-python
+
+tesorboard :  
+
+    pip install tensorboardX
+
+envpool :  
+
     pip install envpool
 
 ## QRDQN.py : 
