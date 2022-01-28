@@ -24,5 +24,5 @@ run_async solve Breakout in 30 minutes (10M and 3M learner frames $\Leftrightarr
 
 ## Anakin_Pong.py : 
 
-My own implementation of Anaking with pong ($\sim$ 12000 FPS in terme of learner steps), learn pong with an MLP model in 60-120 seconds
+My own implementation of Anakin (https://arxiv.org/abs/2104.06272) with pong ($\sim$ 12000 FPS in terme of learner steps), learn pong with an MLP model in 60-120 seconds
 
