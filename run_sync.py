@@ -51,12 +51,12 @@ actor = V_TRACE(
 )
 """
 
+
 params = actor.init_params(PRNGKey(42))
 opti_state = actor.init_state(params)
 
-@jax.jit
-def obs_process(obs):
-    return obs / 255.0
+
+agent.obs_process = jax.jit(lambda x : x / 255)
 
 
 def work(actor, total_time, Q, num_envs=32, seed=42):
@@ -65,7 +65,7 @@ def work(actor, total_time, Q, num_envs=32, seed=42):
     @jax.jit
     def get_action(rng, params, obs):
         rng1, rng2 = split(rng, num=2)
-        logits, softmax = jax.tree_map(lambda t : t[0], actor.get_main_proba(params, obs_process(obs[None])))
+        logits, softmax = jax.tree_map(lambda t : t[0], actor.get_main_proba(params, obs[None]))
         action = jax.vmap(lambda s, r : jax.random.choice(r, a=actor.outDim, p=s))(softmax, jnp.array(split(rng, len(obs))))
         return action, logits, rng2
 
@@ -121,16 +121,7 @@ threads = [threading.Thread(target=work, args=(actor, total_time, Q)) for _ in r
 
 
 while True:
-    tau = Q.get()
-
-    tau = Tau(
-        done = jnp.array(tau.done),
-        reward = jnp.array(tau.reward),
-        action = jnp.array(tau.action),
-        logits = jnp.array(tau.logits),
-        obs = obs_process(jnp.array(tau.obs)),
-    )
-
+    tau = Q.get
     opti_state, params, loss = actor.V_TRACE_step(opti_state, params, tau)
 
 
