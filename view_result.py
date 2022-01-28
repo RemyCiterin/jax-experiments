@@ -13,7 +13,7 @@ import numpy as np
 from functools import partial
 
 actor = V_TRACE(
-    ConvModel, (12, 84, 84), 54,
+    ConvModel, (4, 84, 84), 4,
     1, 1, jnp.array([0.99])
 )
 
@@ -21,7 +21,7 @@ actor.obs_process = jax.jit(lambda obs : obs / 255)
 
 import pickle
 
-file = open("MODEL/DeadlyCorridor-v1_buffer_50000.pickle", "rb")
+file = open("MODEL/Breakout-v5_280000.pickle", "rb")
 params = pickle.load(file)
 file.close()
 
@@ -58,8 +58,8 @@ def doom():
 	out.release()
 
 
-doom()
-assert False
+#doom()
+#assert False
 
 
 
@@ -76,4 +76,4 @@ while True:
 	if done: obs = env.reset()
 
 	time.sleep(0.01)
-	env.render()
+	#env.render()

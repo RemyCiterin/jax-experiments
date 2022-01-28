@@ -2,6 +2,20 @@
 
 Implementation in Jax of Impala based algorithms
 
+## dependancies
+
+    pip install jax
+    pip install pyglet
+    pip install opencv-python
+    pip install tensorboardX
+    pip install gym
+    pip install Box2D
+    pip install dm-haiku
+    pip install optax
+    pip install gym[atari,accept-rom-license]
+    pip install ray
+    pip install envpool
+
 ## QRDQN.py : 
 Quantil regression algorithm (see https://arxiv.org/abs/1710.10044 for more details) with prioritized experience replay with sum and min tree (https://arxiv.org/abs/1511.05952).
 

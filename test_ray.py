@@ -36,7 +36,7 @@ class InvLazy(gym.ObservationWrapper):
     def observation(self, obs):
         return obs.__array__()
 
-env_fn = lambda : InvLazy(wrap_deepmind(make_atari("PongNoFrameskip-v4", show=False), frame_stack=True, scale=False, grayscale=True))
+env_fn = lambda : InvLazy(wrap_deepmind(make_atari("BreakoutNoFrameskip-v4", show=False), frame_stack=True, scale=False, grayscale=True))
 #env_fn = lambda : NormWrapper(DivReward(
 #    Buffer(
 #        SkipFrames(
@@ -82,6 +82,7 @@ class Worker:
         partial_tau = PartialTau(self.N)
 
         obs = self.env.reset()
+        print(self.env.action_space)
 
         @jax.jit
         def get_action(rng, params, obs):
@@ -100,7 +101,7 @@ class Worker:
             if done: n_obs = self.env.reset()
             r_sum += reward 
 
-            tau = partial_tau.add_transition(obs, logits, action, reward, done, n_obs)
+            tau = partial_tau.add_transition(obs, logits, action, np.clip(reward, -1, 1), done, n_obs)
             obs = n_obs
             steps += 1
 
@@ -134,7 +135,7 @@ opti = optax.chain(
 )
 
 actor = V_TRACE(
-    ConvModel, (4, 84, 84), 6,
+    ConvModel, (4, 84, 84), 4,
     1, N, jnp.array([0.99]),
     opti=opti
 )
@@ -147,9 +148,9 @@ opti_state = actor.init_state(params)
 server = ParamsServer.remote(params)
 buffer = ray.util.queue.Queue(128)
 
-num_worker = 10 
+num_worker = 15
 worker = [Worker.remote(env_fn, actor, N) for _ in range(num_worker)]
-work = [w.work.remote(360, buffer, server, i==0) for i, w in enumerate(worker)]
+work = [w.work.remote(3600, buffer, server, i==0) for i, w in enumerate(worker)]
 
 
 steps = 0
@@ -166,7 +167,9 @@ while True:
 
     batch = jax.tree_multimap(lambda *args: np.stack(args, axis=1), *batch)
 
-    opti_state, params, loss = actor.V_TRACE_step(opti_state, params, batch)
+    opti_state, params, loss = actor.V_TRACE_step(opti_state, params, batch, 
+        H_target=1-(time.time()-start_time) / 14400
+    )
     server.set_params.remote(from_jnp(params))
     steps += 1 
 
